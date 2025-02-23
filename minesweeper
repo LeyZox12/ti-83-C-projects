@@ -15,12 +15,12 @@ const int SCREEN_X = 320;
 const uint8_t SCREEN_Y = 240;
 const uint8_t BUTTON_COUNT = 2;
 uint8_t width = 10;
-
 uint8_t height = 10;
 uint8_t menuY = 0;
 uint8_t xPos = 10 / 2;
 uint8_t yPos = 10 / 2;
 uint8_t revealedCases = 0;
+uint8_t remaining = 0;
 char str[255];
 float xAspectRatio = SCREEN_Y / 10;
 float yAspectRatio = SCREEN_Y / 10;
@@ -41,12 +41,14 @@ void drawLines();
 void debugGrid();
 void drawAllMines();
 void updateMenu();
+void updateSideBar();
 
 void resetGame()
 {
     gfx_SetColor(255);
     gfx_FillRectangle(0, 0, SCREEN_X, SCREEN_Y);
     currentMines = 0;
+    remaining = width * height - maxMines - 1;
     isGameOver = false;
     revealedCases = 0;
     doubtedCount = 0;
@@ -79,10 +81,12 @@ int main(void)
         kb_Scan();
         key = kb_Data[7];
         os_FloatToReal(diff <= 0.001f ? 0.0f : diff);
-        if(revealedCases == width * height - currentMines)
+        if(remaining == 0 && !isInMenu && !isGameOver)
         {
+            updateSideBar();
             gfx_SetTextFGColor(7);
-            gfx_PrintStringXY("YOU WON", xPos * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, yPos * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+            gfx_PrintStringXY("YOU", SCREEN_Y, SCREEN_Y / 2.0);
+            gfx_PrintStringXY("WON", SCREEN_Y, SCREEN_Y / 2.0 + charSizeY * 10);
             gfx_SetTextFGColor(0);
             isGameOver = true;
         }
@@ -95,6 +99,7 @@ int main(void)
                     switch(menuY)
                     {
                         case(0):
+                            gfx_SetTextScale(charSizeX, charSizeY); // apply text scale only when game launch to prevent UI bugs in menu
                             isInMenu = false;
                             resetGame();
                             break;
@@ -105,26 +110,37 @@ int main(void)
                     start = clock();
                     defineGrid();
                     isRevealed[yPos][xPos] = true;
+                    if(grid[yPos][xPos] == 0)
+                        clearO(yPos, xPos);
+                    else
+                        remaining--;
                     drawCase(xPos, yPos);
+                    
                 }
-                else if(isDefined)
+                else if(isDefined && !isRevealed[yPos][xPos])
                 {
                     start = clock();
                     if(isGameOver)
                         resetGame();
                     else if(grid[yPos][xPos] == 0)
+                    {
                         clearO(yPos, xPos);
+                        drawCase(xPos, yPos);
+                    }
                     else if(grid[yPos][xPos] >= 9)
                     {
                         drawAllMines();
                         isGameOver = true;
                     }
-                    isRevealed[yPos][xPos] = true;
-                    drawCase(xPos, yPos);
+                    else
+                    {
+                        isRevealed[yPos][xPos] = true;
+                        drawCase(xPos, yPos);
+                        remaining--;
+                    }
                 }
-
             }
-            
+
             if(kb_Data[6] == kb_Sub && !isInMenu)
             {
                 start = clock();
@@ -238,7 +254,8 @@ void defineGrid()
     {
         uint8_t indexX = (rand() + clock()) % width;
         uint8_t indexY = (rand() + clock()) % height;
-        if (grid[indexY][indexX] <= 9)
+        uint8_t dist = 20 / hypot((xPos - indexX) * (xPos - indexX), (yPos - indexY) * (yPos - indexY));
+        if (grid[indexY][indexX] <= 9 && (rand() % dist) == 0)
         {
             grid[indexY][indexX] = 9;
             currentMines++;
@@ -267,6 +284,7 @@ void debugGrid()
 
 void drawCase(uint8_t x, uint8_t y)
 {
+    updateSideBar();
     switch (grid[y][x])
     {
     case (0):
@@ -331,25 +349,19 @@ void clearO(uint8_t indexY, uint8_t indexX)
             float dist = sqrt((indexY-y) * (indexY-y) + (indexX-x) * (indexX-x));
             if (!isRevealed[y][x] && grid[y][x] != 0 && dist <= 1.5)
             {
+                remaining--;
                 isRevealed[y][x] = true;
                 drawCase(x, y);
             }
             else if(!isRevealed[y][x] && grid[y][x] == 0 && dist < 1.5)
             {
+                remaining--;
                 isRevealed[y][x] = true;
                 drawCase(x, y);
-                //clearO(y, x);
+                clearO(y, x);
             }    
         }
     }
-    /*isRevealed[(indexY+1)%height][(indexX)%width] = true;
-    isRevealed[(indexY+1)%height][(indexX-1)%width] = true;
-    isRevealed[(indexY+1)%height][(indexX+1)%width] = true;
-    isRevealed[(indexY-1)%height][(indexX)%width] = true;
-    isRevealed[(indexY-1)%height][(indexX-1)%width] = true;
-    isRevealed[(indexY-1)%height][(indexX+1)%width] = true;
-    isRevealed[(indexY)%height][(indexX+1)%width] = true;
-    isRevealed[(indexY)%height][(indexX-1)%width] = true;*/
 }
 
 void drawAllMines()
@@ -367,11 +379,12 @@ void updateMenu()
     gfx_SetColor(39);
     gfx_Rectangle(240 / 4 - 1, start + SCREEN_Y / 4 * menuY * 1.1 - 1,  SCREEN_Y - SCREEN_Y /10 + 2, SCREEN_Y / 4 + 2);
     gfx_SetColor(255);
+    xPos = width / 2;
+    yPos = height / 2;
     xAspectRatio = SCREEN_Y / width;
     yAspectRatio = SCREEN_Y / height;
     charSizeX = xAspectRatio * 0.1;
     charSizeY = yAspectRatio * 0.1;
-    gfx_SetTextScale(charSizeX, charSizeY);
     gfx_FillRectangle(SCREEN_Y / 4, start, SCREEN_Y - SCREEN_Y /10, SCREEN_Y / 4);
     gfx_PrintStringXY("play", SCREEN_Y/2, start + SCREEN_Y/4 * 0.5);
     snprintf(str, sizeof(str), "Size: %d", height);
@@ -380,5 +393,15 @@ void updateMenu()
     snprintf(str, sizeof(str), "Mines: %d", maxMines);
     gfx_FillRectangle(SCREEN_Y / 4, start + SCREEN_Y / 4 * 2.2, SCREEN_Y - SCREEN_Y /10, SCREEN_Y / 4);
     gfx_PrintStringXY(str, SCREEN_Y / 2, start + SCREEN_Y / 4 * 2.7);
+    gfx_SetColor(0);
+}
+
+void updateSideBar()
+{
+    gfx_SetColor(255);
+    gfx_FillRectangle(SCREEN_Y, 0, SCREEN_X - SCREEN_Y, SCREEN_Y);
+    snprintf(str, sizeof(str), "%d", remaining);
+    gfx_PrintStringXY("rem:", SCREEN_Y, 0);
+    gfx_PrintStringXY(str, SCREEN_Y, charSizeY * 10);
     gfx_SetColor(0);
 }
