@@ -1,0 +1,384 @@
+#include <graphx.h>
+#include <keypadc.h>
+#include <ti/screen.h>
+#include <sys/util.h>
+#include <ti/real.h>
+#include <sys/timers.h>
+#include <time.h>
+#include <stdio.h>
+#include <math.h>
+
+kb_key_t heldKey;
+uint8_t maxMines = 20;
+bool isDefined = false;
+const int SCREEN_X = 320;
+const uint8_t SCREEN_Y = 240;
+const uint8_t BUTTON_COUNT = 2;
+uint8_t width = 10;
+
+uint8_t height = 10;
+uint8_t menuY = 0;
+uint8_t xPos = 10 / 2;
+uint8_t yPos = 10 / 2;
+uint8_t revealedCases = 0;
+char str[255];
+float xAspectRatio = SCREEN_Y / 10;
+float yAspectRatio = SCREEN_Y / 10;
+float charSizeX = SCREEN_Y / 10 * 0.1;
+float charSizeY = SCREEN_Y / 10 * 0.1;
+uint8_t currentMines = 0;
+bool isGameOver = false;
+bool isInMenu = true;
+uint8_t doubted[100 * 100][2];
+uint8_t doubtedCount = 0;
+bool isRevealed[100][100];
+uint8_t grid[100][100];
+void defineGrid();
+void clearO(uint8_t indexY, uint8_t indexX);
+void drawFlag(uint8_t x, uint8_t y);
+void drawCase(uint8_t x, uint8_t y);
+void drawLines();
+void debugGrid();
+void drawAllMines();
+void updateMenu();
+
+void resetGame()
+{
+    gfx_SetColor(255);
+    gfx_FillRectangle(0, 0, SCREEN_X, SCREEN_Y);
+    currentMines = 0;
+    isGameOver = false;
+    revealedCases = 0;
+    doubtedCount = 0;
+    isDefined = false;
+    for (uint8_t i = 0; i < height; i++)
+    {
+        for (uint8_t j = 0; j < width; j++)
+        {
+            grid[i][j] = 0;
+            isRevealed[i][j] = false;
+        }
+    }
+    gfx_SetColor(39);
+    gfx_Rectangle(xPos * xAspectRatio + 1, yPos * yAspectRatio + 1, xAspectRatio - 1, yAspectRatio - 1);
+    drawLines();
+}
+
+
+int main(void)
+{
+    float timer_seconds = 0.2f;
+    float diff = 0.0f;
+    gfx_SetTextScale(charSizeX, charSizeY);
+    kb_key_t key;
+    gfx_Begin();
+    updateMenu();
+    clock_t start = clock();
+    while (kb_Data[1] != kb_2nd)
+    {
+        kb_Scan();
+        key = kb_Data[7];
+        os_FloatToReal(diff <= 0.001f ? 0.0f : diff);
+        if(revealedCases == width * height - currentMines)
+        {
+            gfx_SetTextFGColor(7);
+            gfx_PrintStringXY("YOU WON", xPos * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, yPos * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+            gfx_SetTextFGColor(0);
+            isGameOver = true;
+        }
+        if(diff <= 0)
+        { 
+            if(kb_Data[6] == kb_Enter)
+            {
+                if(isInMenu)
+                {
+                    switch(menuY)
+                    {
+                        case(0):
+                            isInMenu = false;
+                            resetGame();
+                            break;
+                    }
+                }
+                else if(!isDefined) 
+                {
+                    start = clock();
+                    defineGrid();
+                    isRevealed[yPos][xPos] = true;
+                    drawCase(xPos, yPos);
+                }
+                else if(isDefined)
+                {
+                    start = clock();
+                    if(isGameOver)
+                        resetGame();
+                    else if(grid[yPos][xPos] == 0)
+                        clearO(yPos, xPos);
+                    else if(grid[yPos][xPos] >= 9)
+                    {
+                        drawAllMines();
+                        isGameOver = true;
+                    }
+                    isRevealed[yPos][xPos] = true;
+                    drawCase(xPos, yPos);
+                }
+
+            }
+            
+            if(kb_Data[6] == kb_Sub && !isInMenu)
+            {
+                start = clock();
+                gfx_SetColor(255);
+                gfx_FillRectangle(xPos * xAspectRatio + 1, yPos * yAspectRatio + 1, xAspectRatio - 1, yAspectRatio - 1);
+                if(isRevealed[yPos][xPos])
+                    drawCase(xPos, yPos);
+                gfx_SetColor(0);
+            }
+            if(kb_Data[6] == kb_Add && !isInMenu)
+                drawFlag(xPos, yPos);
+            if(kb_Data[6] == kb_Mul && !isInMenu)
+                debugGrid();
+            switch (key)
+            {
+            case (kb_Right):
+                start = clock();
+                if(isInMenu)
+                {
+                    switch(menuY)
+                    {
+                        case(1):
+                            height++;
+                            width++;
+                        break;
+                        case(2):
+                            maxMines++;
+                        break;
+                    }
+                    updateMenu();
+                }
+                else if(!isInMenu)
+                {
+                    gfx_SetColor(255);
+                    gfx_Rectangle(xPos * xAspectRatio + 1, yPos * yAspectRatio + 1, xAspectRatio - 1, yAspectRatio - 1);
+                    xPos = xPos == width - 1 ? 0 : xPos + 1;
+                    gfx_SetColor(39);
+                    gfx_Rectangle(xPos * xAspectRatio + 1, yPos * yAspectRatio + 1, xAspectRatio - 1, yAspectRatio - 1);
+                }
+                break;
+            case (kb_Left):
+                start = clock();    
+                if(isInMenu)
+                {
+                    switch(menuY)
+                    {
+                        case(1):
+                            height--;
+                            width--;
+                        break;
+                        case(2):
+                            maxMines--;
+                        break;
+                    }
+                    updateMenu();
+                }
+                else if(!isInMenu)
+                {
+                    gfx_SetColor(255);
+                    gfx_Rectangle(xPos * xAspectRatio + 1, yPos * yAspectRatio + 1, xAspectRatio - 1, yAspectRatio - 1);
+                    xPos = xPos == 0 ? width - 1 : xPos - 1;
+                    gfx_SetColor(39);
+                    gfx_Rectangle(xPos * xAspectRatio + 1, yPos * yAspectRatio + 1, xAspectRatio - 1, yAspectRatio - 1);
+                }
+                break;
+            case (kb_Down):
+                start = clock();
+                if(isInMenu)
+                {
+                    menuY++;
+                    menuY = menuY > BUTTON_COUNT ? BUTTON_COUNT : menuY;
+                    updateMenu();
+                }
+                else
+                {
+                    gfx_SetColor(255);
+                    gfx_Rectangle(xPos * xAspectRatio + 1, yPos * yAspectRatio + 1, xAspectRatio - 1, yAspectRatio - 1);
+                    yPos = yPos == height - 1 ? 0 : yPos + 1;
+                    gfx_SetColor(39);
+                    gfx_Rectangle(xPos * xAspectRatio + 1, yPos * yAspectRatio + 1, xAspectRatio - 1, yAspectRatio - 1);
+                }
+                break;
+            case (kb_Up):
+                start = clock();
+                if(isInMenu)
+                {
+                    menuY--;
+                    menuY = menuY < 0 ? 0 : menuY;
+                    updateMenu();
+                }
+                else
+                {
+                    gfx_SetColor(255);
+                    gfx_Rectangle(xPos * xAspectRatio + 1, yPos * yAspectRatio + 1, xAspectRatio - 1, yAspectRatio - 1);
+                    yPos = yPos == 0 ? height - 1 : yPos - 1;
+                    gfx_SetColor(39);
+                    gfx_Rectangle(xPos * xAspectRatio + 1, yPos * yAspectRatio + 1, xAspectRatio - 1, yAspectRatio - 1);
+                }
+                break;
+            }
+        }
+        clock_t now = clock();
+        diff = timer_seconds - (float)(now - start) / CLOCKS_PER_SEC;
+    }
+    gfx_End();
+}
+
+void defineGrid()
+{
+    do
+    {
+        uint8_t indexX = (rand() + clock()) % width;
+        uint8_t indexY = (rand() + clock()) % height;
+        if (grid[indexY][indexX] <= 9)
+        {
+            grid[indexY][indexX] = 9;
+            currentMines++;
+            for (uint8_t y = 0; y < height; y++)
+            {
+                for (uint8_t x = 0; x < width; x++)
+                {
+                    double dist = sqrt((indexY-y) * (indexY-y) + (indexX-x) * (indexX-x));
+                    if(dist <= sqrt(2))
+                        grid[y][x]++;
+                }
+            }
+        }
+    }while (currentMines < maxMines);
+    isDefined = true;
+}
+
+void debugGrid()
+{
+    for(uint8_t i = 0; i < height; i++)
+    {
+        for(uint8_t j = 0; j < width; j++)
+            drawCase(j, i);
+    }
+}
+
+void drawCase(uint8_t x, uint8_t y)
+{
+    switch (grid[y][x])
+    {
+    case (0):
+        gfx_PrintStringXY("0", x * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, y * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+        break;
+    case (1):
+        gfx_PrintStringXY("1", x * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, y * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+        break;
+    case (2):
+        gfx_PrintStringXY("2", x * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, y * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+        break;
+    case (3):
+        gfx_PrintStringXY("3", x * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, y * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+        break;
+    case (4):
+        gfx_PrintStringXY("4", x * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, y * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+        break;
+    case (5):
+        gfx_PrintStringXY("5", x * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, y * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+        break;
+    case (6):
+        gfx_PrintStringXY("6", x * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, y * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+        break;
+    case (7):
+        gfx_PrintStringXY("7", x * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, y * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+        break;
+    case (8):
+        gfx_PrintStringXY("8", x * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, y * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+        break;
+    default:
+        gfx_PrintStringXY("x", x * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, y * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+        break;
+    }
+}
+
+void drawFlag(uint8_t x, uint8_t y)
+{
+    gfx_SetColor(255);
+    gfx_FillRectangle(xPos * xAspectRatio + 2, yPos * yAspectRatio + 2, xAspectRatio - 2, yAspectRatio - 2);
+    gfx_SetColor(0);
+    gfx_SetTextFGColor(224);
+    gfx_PrintStringXY("?", x * xAspectRatio + xAspectRatio / 2 - charSizeX * 1.5, y * yAspectRatio + yAspectRatio / 2 - charSizeY * 1.5);
+    gfx_SetTextFGColor(0);
+    gfx_SetColor(0);
+}
+
+void drawLines()
+{
+    gfx_SetColor(0);
+    for (uint8_t i = 0; i <= height; i++)
+        gfx_Line(0, i * yAspectRatio, SCREEN_Y, i * yAspectRatio);
+    for(uint8_t i = 0; i <= width; i++)
+        gfx_Line(i * xAspectRatio, 0, i * xAspectRatio, SCREEN_Y);
+}
+
+void clearO(uint8_t indexY, uint8_t indexX)
+{
+    for (uint8_t y = 0; y < height; y++)
+    {
+        for (uint8_t x = 0; x < width; x++)
+        { 
+            float dist = sqrt((indexY-y) * (indexY-y) + (indexX-x) * (indexX-x));
+            if (!isRevealed[y][x] && grid[y][x] != 0 && dist <= 1.5)
+            {
+                isRevealed[y][x] = true;
+                drawCase(x, y);
+            }
+            else if(!isRevealed[y][x] && grid[y][x] == 0 && dist < 1.5)
+            {
+                isRevealed[y][x] = true;
+                drawCase(x, y);
+                //clearO(y, x);
+            }    
+        }
+    }
+    /*isRevealed[(indexY+1)%height][(indexX)%width] = true;
+    isRevealed[(indexY+1)%height][(indexX-1)%width] = true;
+    isRevealed[(indexY+1)%height][(indexX+1)%width] = true;
+    isRevealed[(indexY-1)%height][(indexX)%width] = true;
+    isRevealed[(indexY-1)%height][(indexX-1)%width] = true;
+    isRevealed[(indexY-1)%height][(indexX+1)%width] = true;
+    isRevealed[(indexY)%height][(indexX+1)%width] = true;
+    isRevealed[(indexY)%height][(indexX-1)%width] = true;*/
+}
+
+void drawAllMines()
+{
+    for(uint8_t i = 0; i < height; i++)
+        for(uint8_t j = 0; j < width; j++)
+            if(grid[i][j] >= 9) drawCase(j, i);
+}
+
+void updateMenu()
+{
+    uint8_t start = 5;
+    gfx_SetColor(0);
+    gfx_FillRectangle(0, 0, SCREEN_X, SCREEN_Y);
+    gfx_SetColor(39);
+    gfx_Rectangle(240 / 4 - 1, start + SCREEN_Y / 4 * menuY * 1.1 - 1,  SCREEN_Y - SCREEN_Y /10 + 2, SCREEN_Y / 4 + 2);
+    gfx_SetColor(255);
+    xAspectRatio = SCREEN_Y / width;
+    yAspectRatio = SCREEN_Y / height;
+    charSizeX = xAspectRatio * 0.1;
+    charSizeY = yAspectRatio * 0.1;
+    gfx_SetTextScale(charSizeX, charSizeY);
+    gfx_FillRectangle(SCREEN_Y / 4, start, SCREEN_Y - SCREEN_Y /10, SCREEN_Y / 4);
+    gfx_PrintStringXY("play", SCREEN_Y/2, start + SCREEN_Y/4 * 0.5);
+    snprintf(str, sizeof(str), "Size: %d", height);
+    gfx_FillRectangle(SCREEN_Y / 4, start + SCREEN_Y / 4 * 1.1, SCREEN_Y - SCREEN_Y /10, SCREEN_Y / 4);
+    gfx_PrintStringXY(str, SCREEN_Y / 2, start + SCREEN_Y / 4 * 1.6);
+    snprintf(str, sizeof(str), "Mines: %d", maxMines);
+    gfx_FillRectangle(SCREEN_Y / 4, start + SCREEN_Y / 4 * 2.2, SCREEN_Y - SCREEN_Y /10, SCREEN_Y / 4);
+    gfx_PrintStringXY(str, SCREEN_Y / 2, start + SCREEN_Y / 4 * 2.7);
+    gfx_SetColor(0);
+}
